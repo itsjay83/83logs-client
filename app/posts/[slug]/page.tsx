@@ -1,62 +1,72 @@
-import { getPost } from "@/lib/posts";
-import { notFound } from "next/navigation";
-import Link from "next/link";
+// app/api/posts/[slug]/route.ts
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { NextRequest, NextResponse } from "next/server";
+import matter from "gray-matter";
+import { Post } from "@/types";
 
-// 페이지 컴포넌트
-export default async function PostPage({
-	params,
-}: {
-	params: { slug: string };
-}) {
-	// 특정 슬러그에 해당하는 게시물을 가져옵니다.
-	const post = await getPost(params.slug);
+const s3Client = new S3Client({
+	region: process.env.AWS_REGION,
+	credentials: {
+		accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+		secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+	},
+});
 
-	// 게시물이 존재하지 않으면 404 페이지를 렌더링합니다.
-	if (!post) {
-		notFound();
+async function getPostFromS3(slug: string): Promise<Post> {
+	try {
+		const command = new GetObjectCommand({
+			Bucket: process.env.S3_BUCKET_NAME,
+			Key: `${slug}.md`,
+		});
+
+		const response = await s3Client.send(command);
+		const content = await response.Body?.transformToString();
+
+		if (!content) {
+			throw new Error("Empty content");
+		}
+
+		const { data, content: markdownContent } = matter(content);
+
+		return {
+			title: data.title || slug,
+			date: data.date || new Date().toISOString(),
+			tags: Array.isArray(data.tags) ? data.tags : [],
+			content: markdownContent,
+			slug,
+		};
+	} catch (error) {
+		if (error instanceof Error) {
+			console.error(`Error fetching post ${slug}:`, error.message);
+		}
+		throw error;
 	}
-
-	return (
-		<div className="prose prose-invert max-w-none p-6">
-			<h1 className="mb-4">{post.title}</h1>
-			<p className="text-gray-400 text-sm mb-8">
-				Published on {new Date(post.date).toLocaleDateString()}
-			</p>
-			<div dangerouslySetInnerHTML={{ __html: post.content }} />
-
-			{/* 태그 표시 */}
-			{post.tags.length > 0 && (
-				<div className="mt-8">
-					<h3>Tags:</h3>
-					<div className="flex flex-wrap gap-2">
-						{post.tags.map((tag) => (
-							<Link
-								key={tag}
-								href={`/tags/${tag}`}
-								className="text-[#007ACC] hover:underline">
-								#{tag}
-							</Link>
-						))}
-					</div>
-				</div>
-			)}
-
-			{/* 홈으로 돌아가는 링크 */}
-			<div className="mt-12">
-				<Link href="/" className="text-[#007ACC] hover:underline">
-					← Back to Home
-				</Link>
-			</div>
-		</div>
-	);
 }
 
-// 동적 경로 생성 함수 (SSG/ISR에서 필요)
-export async function generateStaticParams() {
-	// 모든 게시물 데이터를 가져와 슬러그 목록을 생성합니다.
-	const posts = await (await import("@/lib/posts")).getAllPosts();
+export async function GET(
+	request: NextRequest,
+	{ params }: { params: { slug: string } }
+) {
+	try {
+		const { slug } = params;
 
-	return posts.map((post) => ({
-		slug: post.slug,
-	}));
+		if (!slug) {
+			return NextResponse.json({ error: "Slug is required" }, { status: 400 });
+		}
+
+		const post = await getPostFromS3(slug);
+
+		return NextResponse.json(post);
+	} catch (error) {
+		console.error(`Error in GET /api/posts/${params.slug}:`, error);
+
+		if (error instanceof Error && error.message.includes("NoSuchKey")) {
+			return NextResponse.json({ error: "Post not found" }, { status: 404 });
+		}
+
+		return NextResponse.json(
+			{ error: "Failed to fetch post" },
+			{ status: 500 }
+		);
+	}
 }
