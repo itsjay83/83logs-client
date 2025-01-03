@@ -1,3 +1,4 @@
+// src/app/page.tsx
 export default function Home() {
 	return (
 		<div className="prose prose-invert max-w-none">
