@@ -1,72 +1,77 @@
-// app/api/posts/[slug]/route.ts
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
-import { NextRequest, NextResponse } from "next/server";
-import matter from "gray-matter";
-import { Post } from "@/types";
+// app/posts/[slug]/page.tsx
+import { MDXRemote } from "next-mdx-remote/rsc";
+import { getPost, getAllPosts } from "@/lib/posts";
+import { Metadata } from "next";
+import { notFound } from "next/navigation";
 
-const s3Client = new S3Client({
-	region: process.env.AWS_REGION,
-	credentials: {
-		accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-		secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-	},
-});
+interface PostParams {
+	slug: string;
+}
 
-async function getPostFromS3(slug: string): Promise<Post> {
+interface PageProps {
+	params: PostParams;
+}
+
+export async function generateStaticParams() {
+	const posts = await getAllPosts();
+	return posts.map((post) => ({
+		slug: post.slug,
+	}));
+}
+
+export default async function Post({ params }: PageProps) {
 	try {
-		const command = new GetObjectCommand({
-			Bucket: process.env.S3_BUCKET_NAME,
-			Key: `${slug}.md`,
-		});
+		const post = await getPost(params.slug);
+		if (!post) return notFound();
 
-		const response = await s3Client.send(command);
-		const content = await response.Body?.transformToString();
-
-		if (!content) {
-			throw new Error("Empty content");
-		}
-
-		const { data, content: markdownContent } = matter(content);
-
-		return {
-			title: data.title || slug,
-			date: data.date || new Date().toISOString(),
-			tags: Array.isArray(data.tags) ? data.tags : [],
-			content: markdownContent,
-			slug,
-		};
+		return (
+			<article className="prose prose-invert prose-pre:bg-[#1E1E1E] prose-headings:text-white prose-h1:text-3xl prose-h2:text-2xl prose-h3:text-xl prose-h4:text-lg max-w-none">
+				<header className="mb-8">
+					<h1 className="mb-2 text-3xl font-bold">{post.title}</h1>
+					<div className="text-[#6A737D] flex items-center gap-2">
+						<time>{post.date}</time>
+						<div className="flex gap-2">
+							{post.tags.map((tag) => (
+								<span
+									key={tag}
+									className="px-2 py-0.5 bg-[#3C3C3C] rounded-full text-sm">
+									{tag}
+								</span>
+							))}
+						</div>
+					</div>
+				</header>
+				<div className="mdx-content">
+					<MDXRemote source={post.content} />
+				</div>
+			</article>
+		);
 	} catch (error) {
-		if (error instanceof Error) {
-			console.error(`Error fetching post ${slug}:`, error.message);
-		}
-		throw error;
+		console.error(error);
+		return notFound();
 	}
 }
 
-export async function GET(
-	request: NextRequest,
-	{ params }: { params: { slug: string } }
-) {
+export async function generateMetadata({
+	params,
+}: PageProps): Promise<Metadata> {
 	try {
-		const { slug } = params;
+		const post = await getPost(params.slug);
+		if (!post)
+			return {
+				title: "Post Not Found",
+				description: "The requested post could not be found.",
+			};
 
-		if (!slug) {
-			return NextResponse.json({ error: "Slug is required" }, { status: 400 });
-		}
-
-		const post = await getPostFromS3(slug);
-
-		return NextResponse.json(post);
+		return {
+			title: post.title,
+			description: `${post.title} - Developer Blog`,
+		};
 	} catch (error) {
-		console.error(`Error in GET /api/posts/${params.slug}:`, error);
-
-		if (error instanceof Error && error.message.includes("NoSuchKey")) {
-			return NextResponse.json({ error: "Post not found" }, { status: 404 });
-		}
-
-		return NextResponse.json(
-			{ error: "Failed to fetch post" },
-			{ status: 500 }
-		);
+		console.error(error);
+		return {
+			title: "Post Not Found",
+			description: "The requested post could not be found.",
+		};
 	}
 }
