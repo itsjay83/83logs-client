@@ -7,10 +7,10 @@ export default function Home() {
 			<p>
 				Hello there 👋
 				<br />
-				I&sdquo;m <b>Jeseok Lee</b> from south Korea
+				I&rsquo;m <b>Jeseok Lee</b> from south Korea
 			</p>
 			<p>
-				This blog is a demo version. Please wait a day, and you&sdquo;ll have
+				This blog is a demo version. Please wait a day, and you&rsquo;ll have
 				access to the full version of my posts.
 			</p>
 		</div>
