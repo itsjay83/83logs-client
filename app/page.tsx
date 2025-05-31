@@ -92,7 +92,7 @@ export default function Home() {
 							src={"/imgs/award1.jpg"}
 							width={200}
 							height={0}
-							alt="profile"
+							alt="award1"
 						/>
 					</li>
 				</ul>
